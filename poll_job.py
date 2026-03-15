@@ -8,7 +8,7 @@ from datetime import datetime
 
 from openai import OpenAI
 
-from config import NEBIUS_API_BASE, POLL_INTERVAL
+from config import NEBIUS_API_BASE, POLL_INTERVAL, get_api_base
 
 TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
 
@@ -24,10 +24,13 @@ def main():
         sys.exit(1)
 
     with open("job_id.json") as f:
-        job_id = json.load(f)["job_id"]
+        job_data = json.load(f)
+    job_id = job_data["job_id"]
+    model_alias = job_data.get("model")
+    api_base = get_api_base(model_alias)
 
     client = OpenAI(
-        base_url=NEBIUS_API_BASE,
+        base_url=api_base,
         api_key=api_key,
     )
 

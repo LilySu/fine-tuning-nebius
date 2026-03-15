@@ -1,30 +1,46 @@
-# Qwen3-Coder Fine-Tuning via Nebius Token Factory
+# Fine-Tuning LLMs via Nebius Token Factory
 
-Fine-tuning **Qwen3-Coder-480B-A35B-Instruct** using LoRA adapters through the Nebius Token Factory API.
+Fine-tune large language models using LoRA or full fine-tuning through the [Nebius Token Factory](https://tokenfactory.nebius.com/) API. Supports 38+ models across Llama, Qwen, DeepSeek, and GPT-OSS families.
 
-## Model
+## Supported Models
 
-| Detail | Value |
-|---|---|
-| **Model** | Qwen/Qwen3-Coder-480B-A35B-Instruct |
-| **Total Parameters** | 480 billion |
-| **Active Parameters** | 35 billion (Mixture-of-Experts architecture) |
-| **Model Family** | Qwen3-Coder |
-| **Specialization** | Code generation and understanding |
+### Fine-Tunable Models
 
-Qwen3-Coder-480B-A35B-Instruct is a Mixture-of-Experts (MoE) model — while it has 480B total parameters, only 35B are activated per forward pass, making it efficient for its size. The model is instruction-tuned for code-related tasks including generation, completion, debugging, and explanation.
+Use `python create_job.py --list` to see all models, or `--search <term>` to filter.
+
+| Family | Models | Params | Fine-Tuning | License |
+|---|---|---|---|---|
+| **Llama 3.1** | 8B, 8B-Instruct, 70B, 70B-Instruct | 8B–70B | LoRA + Full | Llama 3.1 Community |
+| **Llama 3.2** | 1B, 1B-Instruct, 3B, 3B-Instruct | 1B–3B | LoRA + Full | Llama 3.2 Community |
+| **Llama 3.3** | 70B-Instruct | 70B | LoRA + Full | Llama 3.3 Community |
+| **Qwen3** | 0.6B–32B (dense + base variants) | 0.6B–32B | LoRA + Full | Apache 2.0 |
+| **Qwen3 Coder** | 30B-A3B, 480B-A35B (MoE) | 3B–35B active | Full only | Apache 2.0 |
+| **Qwen2.5** | 0.5B–72B (dense + coder + instruct) | 0.5B–72B | LoRA + Full | Apache 2.0 |
+| **GPT-OSS** | 20B, 120B (Unsloth BF16) | 20B–120B | LoRA + Full | Apache 2.0 |
+| **DeepSeek V3** | V3-0324, V3.1 (MoE) | 685B total | Full only | MIT |
+
+**LoRA-deployable models** (serverless adapter deployment): `llama-3.1-8b-instruct`, `llama-3.3-70b-instruct`
+
+### Inference-Only Models (not fine-tunable)
+
+These models are available for inference through Nebius but cannot be fine-tuned:
+
+| Alias | Model | Description | Pricing |
+|---|---|---|---|
+| `nemotron` | nvidia/nemotron-3-super-120b-a12b | 120B/12B active hybrid MoE, multi-agent & reasoning, 1M context | $0.30/1M in, $0.90/1M out |
+| `kimi-k2` | moonshotai/Kimi-K2.5 | Native multimodal agentic model, ~15T token pretraining | $0.50/1M in, $2.50/1M out |
 
 ## How Nebius Token Factory Fine-Tuning Works
 
-[Nebius Token Factory](https://tokenfactory.nebius.com/) provides an OpenAI-compatible API for fine-tuning large language models. The process works as follows:
+Nebius Token Factory provides an OpenAI-compatible API for fine-tuning LLMs. The process:
 
 1. **Prepare datasets** — Create JSONL files containing chat-formatted training examples (system/user/assistant message triples).
 2. **Upload datasets** — Send the JSONL files to Nebius via the Files API. Each upload returns a file ID.
-3. **Submit a fine-tuning job** — Specify the base model, uploaded file IDs, and hyperparameters. Nebius runs LoRA (Low-Rank Adaptation) training on their infrastructure — you don't need your own GPUs.
-4. **Poll for completion** — The job runs asynchronously. Poll the Jobs API to track progress until it reaches a terminal state (succeeded, failed, or cancelled).
-5. **Download checkpoints** — Once succeeded, download the LoRA adapter weights. These are small files (~100s of MB) that layer on top of the base model at inference time.
+3. **Submit a fine-tuning job** — Specify the base model, uploaded file IDs, and hyperparameters. Nebius runs training on their infrastructure — no GPUs needed on your end.
+4. **Poll for completion** — The job runs asynchronously. Poll the Jobs API to track progress.
+5. **Download checkpoints** — Once succeeded, download the adapter weights (LoRA) or full model checkpoint.
 
-LoRA fine-tuning modifies only a small number of low-rank matrices inserted into the model's attention layers, rather than updating all 480B parameters. This makes training feasible and fast while still adapting the model's behavior to your dataset.
+**LoRA** (Low-Rank Adaptation) inserts small trainable matrices into the model's attention layers instead of updating all parameters. This makes training fast and produces small adapter files (~100s of MB). Most models support LoRA. Some large MoE models (Qwen3 Coder, DeepSeek V3) only support full fine-tuning.
 
 ## Dataset Format
 
@@ -76,17 +92,17 @@ To build a production dataset:
 
 ```
 nebius-hackathon/
-├── config.py                  # Shared configuration (API URL, model name, constants)
+├── config.py                  # Model registry (fine-tune + inference), API URLs, hyperparameters
 ├── requirements.txt           # Python dependencies (openai SDK)
 ├── validate_dataset.py        # Local JSONL schema validation
 ├── upload_data.py             # Upload datasets to Nebius, saves file_ids.json
-├── create_job.py              # Submit LoRA fine-tuning job, saves job_id.json
+├── create_job.py              # Submit fine-tuning job (--model, --list, --search), saves job_id.json
 ├── poll_job.py                # Poll job status until completion
 ├── download_checkpoints.py    # Download adapter weights after job succeeds
 ├── training.jsonl             # Training dataset (10 examples)
 ├── validation.jsonl           # Validation dataset (3 examples)
 ├── file_ids.json              # [generated] Nebius file IDs from upload
-├── job_id.json                # [generated] Nebius job ID from job creation
+├── job_id.json                # [generated] Nebius job ID and model from job creation
 ├── checkpoints/               # [generated] Downloaded adapter weights
 └── .gitignore                 # Ignores generated files, .env, __pycache__, etc.
 ```
@@ -95,17 +111,17 @@ nebius-hackathon/
 
 | File | Description |
 |---|---|
-| **config.py** | Central configuration. Contains the Nebius API base URL (`https://api.tokenfactory.nebius.com/v1/`), model identifier, polling interval (15s), and random seed (42). Edit this file to change the target model or tuning constants. |
+| **config.py** | Central configuration. Contains `FINETUNE_MODELS` (38 models with params, ft_type, license), `INFERENCE_MODELS` (inference-only with pricing and regional endpoints), default hyperparameters, and helper functions (`get_api_base`, `get_finetune_model`, `list_models`). Add new models here. |
 | **requirements.txt** | Lists `openai>=1.40.0` as the sole dependency. The Nebius Token Factory API is OpenAI-compatible, so the official OpenAI Python SDK is used as the client. |
-| **validate_dataset.py** | Reads one or more JSONL files and checks every line for: valid JSON, presence of `messages` key, correct roles, non-empty content, and at least one user + assistant message. Prints per-file summaries and exits with code 1 if any errors are found. Run this before uploading to catch problems locally. |
-| **upload_data.py** | Uploads `training.jsonl` and `validation.jsonl` to Nebius using the Files API with `purpose="fine-tune"`. Prints the returned file IDs and saves them to `file_ids.json` for use by subsequent scripts. |
-| **create_job.py** | Reads file IDs from `file_ids.json` and submits a LoRA fine-tuning job with configured hyperparameters. Saves the returned job ID to `job_id.json`. |
-| **poll_job.py** | Reads the job ID from `job_id.json` and polls the Jobs API every 15 seconds, printing timestamps and step progress. Exits when the job reaches a terminal state. Handles Ctrl+C gracefully. |
-| **download_checkpoints.py** | Verifies the job succeeded, lists all checkpoints, and downloads each checkpoint's adapter files into `checkpoints/<checkpoint-id>/`. Prints a summary of files downloaded. |
+| **validate_dataset.py** | Reads one or more JSONL files and checks every line for: valid JSON, presence of `messages` key, correct roles, non-empty content, and at least one user + assistant message. Prints per-file summaries and exits with code 1 if any errors are found. |
+| **upload_data.py** | Uploads `training.jsonl` and `validation.jsonl` to Nebius using the Files API with `purpose="fine-tune"`. Saves file IDs to `file_ids.json`. |
+| **create_job.py** | Submits a fine-tuning job. Flags: `--model` / `-m` (alias), `--list` / `-l` (show all models), `--search` (filter models), `--suffix` / `-s` (model name suffix). Automatically selects LoRA or full fine-tuning based on model capability. |
+| **poll_job.py** | Polls the Jobs API every 15 seconds, printing timestamps and step progress. Handles Ctrl+C gracefully. Reads model from `job_id.json` to route to correct endpoint. |
+| **download_checkpoints.py** | Verifies the job succeeded, downloads all checkpoint adapter files into `checkpoints/<checkpoint-id>/`. |
 
-## Hyperparameters
+## Default Hyperparameters
 
-The fine-tuning job in `create_job.py` uses these settings:
+Applied to all fine-tuning jobs. For full-only models, LoRA params are automatically removed.
 
 | Parameter | Value | Description |
 |---|---|---|
@@ -114,7 +130,7 @@ The fine-tuning job in `create_job.py` uses these settings:
 | `n_epochs` | 3 | Number of passes over the full training set |
 | `warmup_ratio` | 0.0 | Fraction of steps for learning rate warmup |
 | `weight_decay` | 0.0 | L2 regularization coefficient |
-| `lora` | true | Enable LoRA (Low-Rank Adaptation) |
+| `lora` | true | Enable LoRA (auto-disabled for full-only models) |
 | `lora_r` | 16 | LoRA rank — controls adapter capacity |
 | `lora_alpha` | 16 | LoRA scaling factor |
 | `lora_dropout` | 0.05 | Dropout applied to LoRA layers |
@@ -142,21 +158,45 @@ export NEBIUS_API_KEY=<your-key>
 # 3. Install dependencies
 uv pip install -r requirements.txt
 
-# 4. Validate datasets locally
+# 4. Browse available models
+uv run python create_job.py --list
+uv run python create_job.py --search llama
+
+# 5. Validate datasets locally
 uv run python validate_dataset.py training.jsonl validation.jsonl
 
-# 5. Upload datasets to Nebius
+# 6. Upload datasets to Nebius
 uv run python upload_data.py
 
-# 6. Submit the fine-tuning job
-uv run python create_job.py
+# 7. Submit the fine-tuning job (pick a model)
+uv run python create_job.py --model qwen3-coder-480b      # default (full FT)
+uv run python create_job.py --model llama-3.3-70b-instruct # LoRA
+uv run python create_job.py --model qwen3-8b               # LoRA + full
+uv run python create_job.py --model deepseek-v3.1          # full FT, US only
 
-# 7. Monitor until completion (Ctrl+C is safe — re-run to resume)
+# 8. Monitor until completion (Ctrl+C is safe — re-run to resume)
 uv run python poll_job.py
 
-# 8. Download adapter checkpoints
+# 9. Download adapter checkpoints
 uv run python download_checkpoints.py
 
-# 9. Verify
+# 10. Verify
 ls -la checkpoints/
 ```
+
+## Adding a New Model
+
+1. Open `config.py`
+2. Add to `FINETUNE_MODELS` (or `INFERENCE_MODELS` if inference-only):
+   ```python
+   "my-model": {
+       "model_id": "org/model-name",
+       "family": "Model Family",
+       "params": "7B",
+       "ft_type": "lora+full",       # or "full"
+       "license": "Apache 2.0",
+       "api_base": "https://...",     # optional, omit to use default endpoint
+       "note": "US only",             # optional
+   },
+   ```
+3. Run `uv run python create_job.py --model my-model`
